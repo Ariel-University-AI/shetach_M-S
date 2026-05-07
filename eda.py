@@ -1,6 +1,15 @@
+# -*- coding: utf-8 -*-
+import sys
+import io
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+from bidi.algorithm import get_display
+
+def heb(text):
+    return get_display(text)
 
 # === טעינת הנתונים ===
 df = pd.read_csv("data.csv")
@@ -33,16 +42,24 @@ print(df.groupby("Custom field (סוג פרויקט)")["משך בפועל (ימ�
 # === גרפים ===
 plt.figure(figsize=(10,5))
 sns.histplot(df["משך בפועל (ימים)"], kde=True)
-plt.title("התפלגות משך פרויקט בפועל")
+plt.title(heb("התפלגות משך פרויקט בפועל"))
+plt.xlabel(heb("משך בפועל (ימים)"))
 plt.show()
 
 plt.figure(figsize=(10,5))
 sns.boxplot(x="Custom field (סוג פרויקט)", y="משך בפועל (ימים)", data=df)
-plt.xticks(rotation=45)
-plt.title("משך פרויקט לפי סוג פרויקט")
+ax = plt.gca()
+ax.set_xticks(ax.get_xticks())
+ax.set_xticklabels([heb(t.get_text()) for t in ax.get_xticklabels()], rotation=45, ha='right')
+plt.title(heb("משך פרויקט לפי סוג פרויקט"))
+plt.xlabel(heb("סוג פרויקט"))
+plt.ylabel(heb("משך בפועל (ימים)"))
+plt.tight_layout()
 plt.show()
 
 plt.figure(figsize=(10,5))
 sns.scatterplot(x="Time Spent (שעות)", y="משך בפועל (ימים)", data=df)
-plt.title("קורלציה בין זמן עבודה לבין משך בפועל")
+plt.title(heb("קורלציה בין זמן עבודה לבין משך בפועל"))
+plt.xlabel(heb("זמן עבודה (שעות)"))
+plt.ylabel(heb("משך בפועל (ימים)"))
 plt.show()
