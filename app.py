@@ -1,8 +1,10 @@
+import os
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import datetime
-from main import estimate_project_duration, calculate_target_dates, PROJECT_TYPE_WEIGHTS
+import joblib
+from main import calculate_target_dates
 
 st.set_page_config(
     page_title='מערכת ניהול פרויקטי מדידה',
@@ -157,44 +159,69 @@ elif page == 'טבלת נתונים':
 elif page == 'חיזוי לוח זמנים':
     st.title('חיזוי לוח זמנים לפרויקט')
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        project_type = st.selectbox('סוג פרויקט:', list(PROJECT_TYPE_WEIGHTS.keys()))
-    with col2:
-        project_size = st.number_input('גודל הפרויקט (דונם):', min_value=1.0, value=50.0, step=5.0)
-    with col3:
-        start_date = st.date_input('תאריך התחלה:', datetime.date.today())
+    MODEL_PATH = 'models/model.pkl'
+    model_exists = os.path.exists(MODEL_PATH)
 
-    if st.button('חשב לוח זמנים', type='primary'):
-        total_days = estimate_project_duration(project_type, project_size)
-        schedule = calculate_target_dates(start_date, total_days)
+    if not model_exists:
+        st.warning('המודל טרם אומן. הרץ את `train_model.py` תחילה.')
+        st.code('python train_model.py')
+    else:
+        ml_model = joblib.load(MODEL_PATH)
+        project_types = sorted(df['Custom field (סוג פרויקט)'].dropna().unique().tolist())
 
-        st.success(f'משך הפרויקט המשוער: **{total_days} ימים**')
-        st.info(f'תאריך יעד סופי למסירה: **{schedule["final_deadline"].strftime("%d/%m/%Y")}**')
+        col1, col2 = st.columns(2)
+        with col1:
+            project_type = st.selectbox('סוג פרויקט:', project_types)
+        with col2:
+            start_date = st.date_input('תאריך התחלה:', datetime.date.today())
 
-        st.subheader('פירוט שלבים')
-        stages_rows = []
-        prev = start_date
-        for stage, deadline in schedule['stages'].items():
-            days = (deadline - prev).days
-            stages_rows.append({
-                'שלב': stage,
-                'תאריך התחלה': prev.strftime('%d/%m/%Y'),
-                'תאריך יעד': deadline.strftime('%d/%m/%Y'),
-                'ימים': days
-            })
-            prev = deadline
+        col3, col4, col5 = st.columns(3)
+        with col3:
+            office_work = st.number_input('תשומות משרד (ימים):', min_value=0.0, value=9.0, step=1.0)
+        with col4:
+            field_work = st.number_input('תשומות שטח (ימים):', min_value=0.0, value=9.0, step=1.0)
+        with col5:
+            sla_days = st.number_input('SLA התחייבות (ימים):', min_value=1, value=65, step=1)
 
-        st.table(pd.DataFrame(stages_rows))
+        if st.button('חשב לוח זמנים', type='primary'):
+            input_df = pd.DataFrame([{
+                'Custom field (סוג פרויקט)': project_type,
+                'Custom field (תשומות - משרד)': office_work,
+                'Custom field (תשומות - שטח)': field_work,
+                'SLA התחייבות (ימים)': sla_days,
+            }])
 
-        st.subheader('גנט - לוח זמנים')
-        gantt_data = []
-        prev = start_date
-        for stage, deadline in schedule['stages'].items():
-            gantt_data.append({'שלב': stage, 'התחלה': prev, 'סיום': deadline})
-            prev = deadline
+            total_days = max(1, int(round(ml_model.predict(input_df)[0])))
+            schedule = calculate_target_dates(start_date, total_days)
 
-        gantt_df = pd.DataFrame(gantt_data)
-        fig = px.timeline(gantt_df, x_start='התחלה', x_end='סיום', y='שלב', color='שלב')
-        fig.update_yaxes(autorange='reversed')
-        st.plotly_chart(fig, use_container_width=True)
+            st.success(f'חיזוי המודל: **{total_days} ימים**')
+            st.info(f'תאריך יעד סופי למסירה: **{schedule["final_deadline"].strftime("%d/%m/%Y")}**')
+
+            st.subheader('פירוט שלבים')
+            stages_rows = []
+            prev = start_date
+            for stage, deadline in schedule['stages'].items():
+                days = (deadline - prev).days
+                stages_rows.append({
+                    'שלב': stage,
+                    'תאריך התחלה': prev.strftime('%d/%m/%Y'),
+                    'תאריך יעד': deadline.strftime('%d/%m/%Y'),
+                    'ימים': days,
+                })
+                prev = deadline
+
+            st.table(pd.DataFrame(stages_rows))
+
+            st.subheader('גנט - לוח זמנים')
+            gantt_data = []
+            prev = start_date
+            for stage, deadline in schedule['stages'].items():
+                gantt_data.append({'שלב': stage, 'התחלה': prev, 'סיום': deadline})
+                prev = deadline
+
+            fig = px.timeline(
+                pd.DataFrame(gantt_data),
+                x_start='התחלה', x_end='סיום', y='שלב', color='שלב'
+            )
+            fig.update_yaxes(autorange='reversed')
+            st.plotly_chart(fig, use_container_width=True)
