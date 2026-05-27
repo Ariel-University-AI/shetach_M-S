@@ -11,9 +11,11 @@ _original_plotly_chart = st.plotly_chart
 def show_large_plotly_chart(fig, *args, **kwargs):
     if hasattr(fig, 'update_layout'):
         fig.update_layout(
-            font=dict(size=15),
-            title=dict(font=dict(size=18)),
-            hoverlabel=dict(font=dict(size=14))
+            font=dict(size=16, family="Arial"),
+            title=dict(font=dict(size=20)),
+            hoverlabel=dict(font=dict(size=15)),
+            xaxis=dict(tickfont=dict(size=14), title=dict(font=dict(size=16))),
+            yaxis=dict(tickfont=dict(size=14), title=dict(font=dict(size=16)))
         )
     return _original_plotly_chart(fig, *args, **kwargs)
 st.plotly_chart = show_large_plotly_chart
