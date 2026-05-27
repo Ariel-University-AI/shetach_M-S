@@ -6,6 +6,19 @@ import datetime
 import joblib
 from main import calculate_target_dates
 
+# התאמת גופנים בגרפים לגדולים וקריאים יותר באופן גלובלי
+_original_plotly_chart = st.plotly_chart
+def show_large_plotly_chart(fig, *args, **kwargs):
+    if hasattr(fig, 'update_layout'):
+        fig.update_layout(
+            font=dict(size=15),
+            title=dict(font=dict(size=18)),
+            hoverlabel=dict(font=dict(size=14))
+        )
+    return _original_plotly_chart(fig, *args, **kwargs)
+st.plotly_chart = show_large_plotly_chart
+
+
 st.set_page_config(
     page_title='מערכת ניהול פרויקטי מדידה',
     page_icon='📐',
@@ -35,6 +48,21 @@ def load_data():
     df['Time Spent (שעות)'] = df['Σ Time Spent'] / 3600
     df['חריגה SLA'] = df['משך בפועל (ימים)'] - df['SLA התחייבות (ימים)']
     df['עמידה ב-SLA'] = df['חריגה SLA'] <= 0
+    if 'שטח בדונם' in df.columns:
+        df['שטח בדונם'] = pd.to_numeric(df['שטח בדונם'], errors='coerce')
+        def get_area_group(val):
+            if pd.isna(val):
+                return 'לא מוגדר'
+            if val <= 5:
+                # 0-5 Dunam
+                return 'קטן (0-5 דונם)'
+            elif val <= 10:
+                # 5-10 Dunam
+                return 'בינוני (5-10 דונם)'
+            else:
+                # 10+ Dunam
+                return 'גדול (10+ דונם)'
+        df['קבוצת שטח'] = df['שטח בדונם'].apply(get_area_group)
     return df
 
 
@@ -124,6 +152,110 @@ elif page == 'גרפים ו-EDA':
     )
     st.plotly_chart(fig, use_container_width=True)
 
+    if 'שטח בדונם' in df.columns:
+        st.subheader('קורלציה: שטח בדונם מול משך בפועל')
+        df_area = df[df['שטח בדונם'].notna()]
+        if not df_area.empty:
+            fig = px.scatter(
+                df_area, x='שטח בדונם', y='משך בפועל (ימים)',
+                color='Custom field (סוג פרויקט)', trendline='ols',
+                hover_data=['Issue key']
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            st.markdown('---')
+            st.subheader('🌳 ניתוח לפי קבוצות שטח פרויקט')
+            
+            show_estimated = st.checkbox(
+                '🔮 הצג הערכת שטח משוערת לכלל הפרויקטים (חיזוי במודל Random Forest עבור 217 פרויקטים חסרים על בסיס תשומותיהם)',
+                value=False
+            )
+            
+            if show_estimated:
+                from sklearn.ensemble import RandomForestRegressor
+                df_known = df_area.copy()
+                df_missing = df[df['שטח בדונם'].isna()].copy()
+                
+                FEATURES_AREA = ['תשומות משרד', 'תשומות שטח', 'Time Spent (שעות)', 'משך בפועל (ימים)']
+                
+                # Prep features
+                for d in [df_known, df_missing]:
+                    d['תשומות משרד'] = pd.to_numeric(d['Custom field (תשומות - משרד)'], errors='coerce').fillna(0)
+                    d['תשומות שטח'] = pd.to_numeric(d['Custom field (תשומות - שטח)'], errors='coerce').fillna(0)
+                
+                X_train = df_known[FEATURES_AREA]
+                y_train = df_known['שטח בדונם']
+                
+                # Train model
+                rf_model = RandomForestRegressor(n_estimators=100, max_depth=4, random_state=42)
+                rf_model.fit(X_train, y_train)
+                
+                # Predict missing areas
+                if not df_missing.empty:
+                    X_missing = df_missing[FEATURES_AREA]
+                    df_missing['שטח בדונם'] = rf_model.predict(X_missing)
+                
+                # Recategorize
+                def get_area_group(val):
+                    if pd.isna(val): return 'לא מוגדר'
+                    if val <= 5: return 'קטן (0-5 דונם)'
+                    elif val <= 10: return 'בינוני (5-10 דונם)'
+                    else: return 'גדול (10+ דונם)'
+                
+                df_known['קבוצת שטח'] = df_known['שטח בדונם'].apply(get_area_group)
+                df_missing['קבוצת שטח'] = df_missing['שטח בדונם'].apply(get_area_group)
+                
+                df_for_charts = pd.concat([df_known, df_missing])
+                title_suffix = ' (בפועל + משוער לכלל 267 הפרויקטים)'
+                
+                st.info('💡 המערכת אימנה מודל Random Forest על גבי 50 הפרויקטים בעלי השטח הידוע, וביצעה חיזוי שטח לכל שאר 217 הפרויקטים בהתבסס על תשומות משרד, שטח, שעות עבודה ומשך הפרויקט.')
+            else:
+                df_for_charts = df_area[df_area['קבוצת שטח'] != 'לא מוגדר'].copy()
+                title_suffix = ' (50 פרויקטים נמדדים בלבד)'
+            
+            c_area_1, c_area_2 = st.columns(2)
+            with c_area_1:
+                st.markdown(f'<p style="text-align:right; font-weight:bold; font-size:1.1rem;">התפלגות פרויקטים{title_suffix}</p>', unsafe_allow_html=True)
+                area_counts = df_for_charts['קבוצת שטח'].value_counts().reset_index()
+                area_counts.columns = ['קבוצת שטח', 'כמות']
+                
+                # סדר הצגה נכון (קטן -> בינוני -> גדול)
+                order_map = {'קטן (0-5 דונם)': 0, 'בינוני (5-10 דונם)': 1, 'גדול (10+ דונם)': 2}
+                area_counts['sort_idx'] = area_counts['קבוצת שטח'].map(order_map)
+                area_counts = area_counts.sort_values('sort_idx')
+
+                fig_ac = px.pie(
+                    area_counts, values='כמות', names='קבוצת שטח',
+                    color='קבוצת שטח',
+                    color_discrete_map={
+                        'קטן (0-5 דונם)': '#6c63ff',
+                        'בינוני (5-10 דונם)': '#00d2ff',
+                        'גדול (10+ דונם)': '#ff6b6b'
+                    }
+                )
+                st.plotly_chart(fig_ac, use_container_width=True)
+                
+            with c_area_2:
+                st.markdown(f'<p style="text-align:right; font-weight:bold; font-size:1.1rem;">משך פרויקט ממוצע (ימים){title_suffix}</p>', unsafe_allow_html=True)
+                area_duration = df_for_charts.groupby('קבוצת שטח')['משך בפועל (ימים)'].mean().round(1).reset_index()
+                area_duration.columns = ['קבוצת שטח', 'משך ממוצע (ימים)']
+                
+                area_duration['sort_idx'] = area_duration['קבוצת שטח'].map(order_map)
+                area_duration = area_duration.sort_values('sort_idx')
+
+                fig_ad = px.bar(
+                    area_duration, x='קבוצת שטח', y='משך ממוצע (ימים)', text_auto=True,
+                    color='קבוצת שטח',
+                    color_discrete_map={
+                        'קטן (0-5 דונם)': '#6c63ff',
+                        'בינוני (5-10 דונם)': '#00d2ff',
+                        'גדול (10+ דונם)': '#ff6b6b'
+                    }
+                )
+                st.plotly_chart(fig_ad, use_container_width=True)
+        else:
+            st.info('אין נתוני שטח זמינים בחתך הנוכחי.')
+
     st.subheader('חריגה מ-SLA לפי פרויקט')
     fig = px.bar(
         df.sort_values('חריגה SLA', ascending=False).head(30),
@@ -157,71 +289,72 @@ elif page == 'טבלת נתונים':
 
 # ───────────────────────────── חיזוי ─────────────────────────────
 elif page == 'חיזוי לוח זמנים':
-    st.title('חיזוי לוח זמנים לפרויקט')
+    st.title('תכנון לוח זמנים לפרויקט (לפי SLA)')
 
-    MODEL_PATH = 'models/model.pkl'
-    model_exists = os.path.exists(MODEL_PATH)
+    project_types = sorted(df['Custom field (סוג פרויקט)'].dropna().unique().tolist())
 
-    if not model_exists:
-        st.warning('המודל טרם אומן. הרץ את `train_model.py` תחילה.')
-        st.code('python train_model.py')
+    col1, col2 = st.columns(2)
+    with col1:
+        project_type = st.selectbox('סוג פרויקט:', project_types)
+    with col2:
+        start_date = st.date_input('תאריך התחלה:', datetime.date.today())
+
+    # מציאת ה-SLA המוגדר כברירת מחדל עבור סוג הפרויקט שנבחר מהנתונים
+    type_df = df[df['Custom field (סוג פרויקט)'] == project_type]
+    if not type_df.empty and 'SLA התחייבות (ימים)' in type_df.columns:
+        default_sla = int(type_df['SLA התחייבות (ימים)'].dropna().iloc[0])
     else:
-        ml_model = joblib.load(MODEL_PATH)
-        project_types = sorted(df['Custom field (סוג פרויקט)'].dropna().unique().tolist())
+        default_sla = 65
 
-        col1, col2 = st.columns(2)
-        with col1:
-            project_type = st.selectbox('סוג פרויקט:', project_types)
-        with col2:
-            start_date = st.date_input('תאריך התחלה:', datetime.date.today())
+    col3, col4, col5, col6 = st.columns(4)
+    with col3:
+        office_work = st.number_input('תשומות משרד (שעות):', min_value=0.0, value=9.0, step=1.0)
+    with col4:
+        field_work = st.number_input('תשומות שטח (שעות):', min_value=0.0, value=9.0, step=1.0)
+    with col5:
+        sla_days = st.number_input('SLA התחייבות (ימים):', min_value=1, value=default_sla, step=1)
+    with col6:
+        project_area = st.number_input('שטח המדידה (דונם):', min_value=0.1, value=5.0, step=1.0)
 
-        col3, col4, col5 = st.columns(3)
-        with col3:
-            office_work = st.number_input('תשומות משרד (ימים):', min_value=0.0, value=9.0, step=1.0)
-        with col4:
-            field_work = st.number_input('תשומות שטח (ימים):', min_value=0.0, value=9.0, step=1.0)
-        with col5:
-            sla_days = st.number_input('SLA התחייבות (ימים):', min_value=1, value=65, step=1)
+    if project_area <= 5:
+        area_group_desc = "🟢 קבוצת שטח: קטן (0-5 דונם)"
+    elif project_area <= 10:
+        area_group_desc = "🔵 קבוצת שטח: בינוני (5-10 דונם)"
+    else:
+        area_group_desc = "🔴 קבוצת שטח: גדול (10+ דונם)"
+    st.markdown(f"**{area_group_desc}**")
 
-        if st.button('חשב לוח זמנים', type='primary'):
-            input_df = pd.DataFrame([{
-                'Custom field (סוג פרויקט)': project_type,
-                'Custom field (תשומות - משרד)': office_work,
-                'Custom field (תשומות - שטח)': field_work,
-                'SLA התחייבות (ימים)': sla_days,
-            }])
+    if st.button('חשב לוח זמנים', type='primary'):
+        # חישוב לוח זמנים מתוכנן לפי SLA
+        schedule_sla = calculate_target_dates(start_date, int(sla_days))
 
-            total_days = max(1, int(round(ml_model.predict(input_df)[0])))
-            schedule = calculate_target_dates(start_date, total_days)
+        st.markdown("---")
+        st.markdown("### 📋 לוח זמנים מתוכנן ללקוח (לפי SLA)")
+        st.info(f"משך כולל: **{int(sla_days)} ימים** | 🎯 תאריך יעד סופי למסירה: **{schedule_sla['final_deadline'].strftime('%d/%m/%Y')}**")
+        
+        stages_rows_sla = []
+        prev = start_date
+        for stage, deadline in schedule_sla['stages'].items():
+            days = (deadline - prev).days
+            stages_rows_sla.append({
+                'שלב': stage,
+                'תאריך התחלה': prev.strftime('%d/%m/%Y'),
+                'תאריך יעד': deadline.strftime('%d/%m/%Y'),
+                'ימים': days,
+            })
+            prev = deadline
+        st.table(pd.DataFrame(stages_rows_sla))
 
-            st.success(f'חיזוי המודל: **{total_days} ימים**')
-            st.info(f'תאריך יעד סופי למסירה: **{schedule["final_deadline"].strftime("%d/%m/%Y")}**')
+        # גאנט ללקוח
+        gantt_sla = []
+        prev = start_date
+        for stage, deadline in schedule_sla['stages'].items():
+            gantt_sla.append({'שלב': stage, 'התחלה': prev, 'סיום': deadline})
+            prev = deadline
+        fig_sla = px.timeline(
+            pd.DataFrame(gantt_sla),
+            x_start='התחלה', x_end='סיום', y='שלב', color='שלב'
+        )
+        fig_sla.update_yaxes(autorange='reversed')
+        st.plotly_chart(fig_sla, use_container_width=True)
 
-            st.subheader('פירוט שלבים')
-            stages_rows = []
-            prev = start_date
-            for stage, deadline in schedule['stages'].items():
-                days = (deadline - prev).days
-                stages_rows.append({
-                    'שלב': stage,
-                    'תאריך התחלה': prev.strftime('%d/%m/%Y'),
-                    'תאריך יעד': deadline.strftime('%d/%m/%Y'),
-                    'ימים': days,
-                })
-                prev = deadline
-
-            st.table(pd.DataFrame(stages_rows))
-
-            st.subheader('גנט - לוח זמנים')
-            gantt_data = []
-            prev = start_date
-            for stage, deadline in schedule['stages'].items():
-                gantt_data.append({'שלב': stage, 'התחלה': prev, 'סיום': deadline})
-                prev = deadline
-
-            fig = px.timeline(
-                pd.DataFrame(gantt_data),
-                x_start='התחלה', x_end='סיום', y='שלב', color='שלב'
-            )
-            fig.update_yaxes(autorange='reversed')
-            st.plotly_chart(fig, use_container_width=True)

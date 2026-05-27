@@ -37,7 +37,7 @@
         .bg-pattern {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background:
-                radial-gradient(ellipse at 20% 50%, rgba(108,99,255,0.08) 0%, transparent 50%),
+                radial-gradient(ellipse at 20% 50%, rgba(108,99,255,0.08) 0%, transparent 50%),שם משת
                 radial-gradient(ellipse at 80% 20%, rgba(0,210,255,0.06) 0%, transparent 50%),
                 radial-gradient(ellipse at 50% 80%, rgba(255,107,107,0.05) 0%, transparent 50%);
             pointer-events: none; z-index: 0;
@@ -138,7 +138,7 @@
         }
 
         .chart-card h3 {
-            font-size: 1.15rem; font-weight: 600;
+            font-size: 1.35rem; font-weight: 600;
             margin-bottom: 16px; color: var(--text-primary);
             display: flex; align-items: center; gap: 8px;
         }
@@ -163,7 +163,7 @@
 
         table {
             width: 100%; border-collapse: collapse;
-            font-size: 0.85rem;
+            font-size: 0.95rem;
         }
 
         th {
@@ -261,6 +261,13 @@ function analyzeData(raw) {
         const field = parseFloat(r['Custom field (תשומות - שטח)']) || 0;
         const amount = parseFloat(r['Custom field (סכום החשבון)']) || 0;
         const slaOk = slaDays && actualDays != null ? actualDays <= slaDays : null;
+        const area = parseFloat(r['שטח בדונם']) || null;
+        let areaGroup = 'לא מוגדר';
+        if (area !== null) {
+            if (area <= 5) areaGroup = 'קטן (0-5 דונם)';
+            else if (area <= 10) areaGroup = 'בינוני (5-10 דונם)';
+            else areaGroup = 'גדול (10+ דונם)';
+        }
 
         return {
             label: r['Labels'] || '',
@@ -271,6 +278,7 @@ function analyzeData(raw) {
             projectType2: r['Custom field (סוג פרויקט).1'] || '',
             manager: r['Custom field (מנהל פרויקט)'] || 'לא מוגדר',
             office, field, amount, slaOk,
+            area, areaGroup,
             slaDeviation: actualDays != null && slaDays ? actualDays - slaDays : null
         };
     }).filter(r => r.issueKey);
@@ -323,6 +331,8 @@ function renderDashboard(rows) {
     const totalHrs = Math.round(rows.reduce((a,r) => a + r.timeSpentHrs, 0));
     const totalAmount = Math.round(rows.reduce((a,r) => a + r.amount, 0));
     const projectTypes = Object.keys(countBy(rows, 'projectType')).length;
+    const areaRows = rows.filter(r => r.area !== null);
+    const totalArea = Math.round(areaRows.reduce((a,r) => a + r.area, 0));
 
     app.innerHTML = `
         <div class="kpi-grid">
@@ -332,6 +342,7 @@ function renderDashboard(rows) {
             <div class="kpi-card" style="animation-delay:.4s"><div class="icon">⏱️</div><div class="value">${totalHrs.toLocaleString()}</div><div class="label">סה"כ שעות עבודה</div></div>
             <div class="kpi-card" style="animation-delay:.5s"><div class="icon">📐</div><div class="value">${projectTypes}</div><div class="label">סוגי פרויקטים</div></div>
             <div class="kpi-card" style="animation-delay:.6s"><div class="icon">💰</div><div class="value">₪${(totalAmount/1000).toFixed(0)}K</div><div class="label">סה"כ סכום חשבונות</div></div>
+            <div class="kpi-card" style="animation-delay:.7s"><div class="icon">🌳</div><div class="value">${totalArea.toLocaleString()}</div><div class="label">סה"כ שטח (דונם)</div></div>
         </div>
 
         <div class="chart-grid">
@@ -345,6 +356,14 @@ function renderDashboard(rows) {
             <div class="chart-card full-width"><h3>📅 קו זמן - פרויקטים לפי חודש <span class="badge">Line</span></h3><div class="chart-wrapper"><canvas id="chartTimeline"></canvas></div></div>
         </div>
 
+        <div style="margin-top: 30px; margin-bottom: 20px;">
+            <h2 style="font-size: 1.6rem; color: var(--accent-2); border-bottom: 1px dashed var(--border); padding-bottom: 8px;">🌳 ניתוח קבוצות שטח (דונם)</h2>
+        </div>
+        <div class="chart-grid">
+            <div class="chart-card"><h3>🌳 התפלגות לפי קבוצת שטח <span class="badge">Doughnut</span></h3><div class="chart-wrapper"><canvas id="chartAreaGroupPie"></canvas></div></div>
+            <div class="chart-card"><h3>⏳ משך ממוצע לפי קבוצת שטח <span class="badge">Bar</span></h3><div class="chart-wrapper"><canvas id="chartAreaGroupAvgDays"></canvas></div></div>
+        </div>
+
         <div class="chart-grid">
             <div class="chart-card full-width">
                 <h3>📋 טבלת נתונים מפורטת <span class="badge">${total} רשומות</span></h3>
@@ -352,7 +371,7 @@ function renderDashboard(rows) {
                     <table>
                         <thead><tr>
                             <th>מזהה</th><th>סוג פרויקט</th><th>מנהל</th><th>משך (ימים)</th>
-                            <th>SLA (ימים)</th><th>חריגה</th><th>שעות עבודה</th><th>סכום</th>
+                            <th>SLA (ימים)</th><th>חריגה</th><th>שעות עבודה</th><th>שטח (דונם)</th><th>סכום</th>
                         </tr></thead>
                         <tbody id="dataTableBody"></tbody>
                     </table>
@@ -369,7 +388,9 @@ function buildCharts(rows) {
     const defaults = Chart.defaults;
     defaults.color = '#a0a0b8';
     defaults.font.family = 'Heebo';
-    defaults.plugins.legend.labels.padding = 14;
+    defaults.font.size = 14; // הגדלת גופן ברירת המחדל של הגרפים לקריאות מיטבית
+    defaults.plugins.legend.labels.font = { size: 14, family: 'Heebo' };
+    defaults.plugins.legend.labels.padding = 16;
 
     // 1. Project types pie
     const typeCounts = countBy(rows, 'projectType');
@@ -506,6 +527,54 @@ function buildCharts(rows) {
         },
         options: { responsive: true, maintainAspectRatio: false, scales: { x: { grid:{color:'rgba(255,255,255,0.05)'} }, y: { grid:{color:'rgba(255,255,255,0.05)'} } } }
     });
+
+    // 9. Area Group Pie (only for projects with defined area)
+    const areaRows = rows.filter(r => r.area !== null);
+    const areaGroupCounts = { 'קטן (0-5 דונם)': 0, 'בינוני (5-10 דונם)': 0, 'גדול (10+ דונם)': 0 };
+    areaRows.forEach(r => {
+        if (areaGroupCounts[r.areaGroup] !== undefined) {
+            areaGroupCounts[r.areaGroup]++;
+        }
+    });
+    new Chart(document.getElementById('chartAreaGroupPie'), {
+        type: 'doughnut',
+        data: {
+            labels: Object.keys(areaGroupCounts),
+            datasets: [{
+                data: Object.values(areaGroupCounts),
+                backgroundColor: ['#6c63ff', '#00d2ff', '#ff6b6b'],
+                borderWidth: 0
+            }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'right' } } }
+    });
+
+    // 10. Area Group Avg Days
+    const avgDaysByAreaGroup = {};
+    const areaGroupCountsForAvg = {};
+    areaRows.filter(r => r.actualDays != null).forEach(r => {
+        const g = r.areaGroup;
+        avgDaysByAreaGroup[g] = (avgDaysByAreaGroup[g] || 0) + r.actualDays;
+        areaGroupCountsForAvg[g] = (areaGroupCountsForAvg[g] || 0) + 1;
+    });
+    const avgLabels = ['קטן (0-5 דונם)', 'בינוני (5-10 דונם)', 'גדול (10+ דונם)'];
+    const avgValues = avgLabels.map(l => {
+        const count = areaGroupCountsForAvg[l] || 0;
+        return count > 0 ? Math.round((avgDaysByAreaGroup[l] / count) * 10) / 10 : 0;
+    });
+    new Chart(document.getElementById('chartAreaGroupAvgDays'), {
+        type: 'bar',
+        data: {
+            labels: avgLabels,
+            datasets: [{
+                label: 'ממוצע ימים',
+                data: avgValues,
+                backgroundColor: ['#6c63ff', '#00d2ff', '#ff6b6b'],
+                borderRadius: 6
+            }]
+        },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid:{display:false} }, y: { grid:{color:'rgba(255,255,255,0.05)'} } } }
+    });
 }
 
 function buildTable(rows) {
@@ -520,6 +589,7 @@ function buildTable(rows) {
             <td>${r.slaDays ?? '-'}</td>
             <td class="${r.slaOk === true ? 'sla-ok' : r.slaOk === false ? 'sla-fail' : ''}">${r.slaDeviation != null ? (r.slaDeviation > 0 ? '+' : '') + r.slaDeviation : '-'}</td>
             <td>${Math.round(r.timeSpentHrs)}</td>
+            <td>${r.area != null ? `${r.area.toLocaleString()} (${r.area <= 5 ? 'קטן' : r.area <= 10 ? 'בינוני' : 'גדול'})` : '-'}</td>
             <td>${r.amount ? '₪' + r.amount.toLocaleString() : '-'}</td>
         </tr>
     `).join('');

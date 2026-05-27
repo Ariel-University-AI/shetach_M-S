@@ -1,26 +1,43 @@
 import pandas as pd
 import numpy as np
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.linear_model import Ridge
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_error, r2_score
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import joblib
 import os
 
 # ── טעינה וניקוי ────────────────────────────────────────────────
 df = pd.read_csv('data/dataset.csv')
 
+# סינון סוגי פרויקטים שלא מעוניינים להכליל במודל
+exclude_types = [
+    'מחלקת תצר - עבודות נוספות',
+    'עבודת משרד',
+    'סקר',
+    'פיקוח',
+    'ליווי הפקעות'
+]
+df = df[~df['Custom field (סוג פרויקט)'].isin(exclude_types)]
+
 df['סוף']    = pd.to_datetime(df['סוף'],    errors='coerce')
 df['התחלה']  = pd.to_datetime(df['התחלה'],  errors='coerce')
 df['משך בפועל (ימים)'] = (df['סוף'] - df['התחלה']).dt.days
+
+# המרת עמודת השטח למספר והשלמת חסרים לפי חציון
+df['שטח בדונם'] = pd.to_numeric(df['שטח בדונם'], errors='coerce')
+median_area = df['שטח בדונם'].median()
+df['שטח בדונם'] = df['שטח בדונם'].fillna(median_area)
 
 FEATURES = [
     'Custom field (סוג פרויקט)',
     'Custom field (תשומות - משרד)',
     'Custom field (תשומות - שטח)',
     'SLA התחייבות (ימים)',
+    'שטח בדונם'
 ]
 TARGET = 'משך בפועל (ימים)'
 
@@ -55,6 +72,7 @@ NUM_COLS = [
     'Custom field (תשומות - משרד)',
     'Custom field (תשומות - שטח)',
     'SLA התחייבות (ימים)',
+    'שטח בדונם'
 ]
 
 preprocessor = ColumnTransformer([
@@ -62,28 +80,36 @@ preprocessor = ColumnTransformer([
     ('num', StandardScaler(),                       NUM_COLS),
 ])
 
-pipeline = Pipeline([
-    ('preprocessor', preprocessor),
-    ('model', RandomForestRegressor(
-        n_estimators=200,
-        max_depth=10,
-        random_state=42,
-    )),
-])
+candidates = {
+    'RandomForest':       RandomForestRegressor(n_estimators=200, max_depth=10, random_state=42),
+    'GradientBoosting':   GradientBoostingRegressor(n_estimators=200, max_depth=4, random_state=42),
+    'Ridge':              Ridge(alpha=1.0),
+}
 
-# ── אימון ────────────────────────────────────────────────────────
-pipeline.fit(X_train, y_train)
+# ── השוואת אלגוריתמים ────────────────────────────────────────────
+print(f"\n{'אלגוריתם':<22} {'MAE':>8} {'RMSE':>8} {'R²':>8}")
+print("-" * 50)
 
-# ── הערכה ────────────────────────────────────────────────────────
-y_pred = pipeline.predict(X_test)
-mae = mean_absolute_error(y_test, y_pred)
-r2  = r2_score(y_test, y_pred)
+results = {}
+for name, regressor in candidates.items():
+    pipe = Pipeline([('preprocessor', preprocessor), ('model', regressor)])
+    pipe.fit(X_train, y_train)
+    y_pred = pipe.predict(X_test)
+    mae  = mean_absolute_error(y_test, y_pred)
+    rmse = mean_squared_error(y_test, y_pred) ** 0.5
+    r2   = r2_score(y_test, y_pred)
+    results[name] = {'pipe': pipe, 'mae': mae, 'rmse': rmse, 'r2': r2}
+    print(f"{name:<22} {mae:>8.1f} {rmse:>8.1f} {r2:>8.3f}")
 
-print(f"\nתוצאות הערכה (test set):")
-print(f"  MAE  (שגיאה ממוצעת בימים): {mae:.1f}")
-print(f"  R²   (דיוק המודל 0-1):     {r2:.3f}")
+# ── בחירת הטוב ביותר (לפי MAE) ───────────────────────────────────
+best_name = min(results, key=lambda n: results[n]['mae'])
+best      = results[best_name]
+print(f"\nהמודל הטוב ביותר: {best_name}")
+print(f"  MAE : {best['mae']:.1f} ימים")
+print(f"  RMSE: {best['rmse']:.1f} ימים")
+print(f"  R²  : {best['r2']:.3f}")
 
 # ── שמירה ────────────────────────────────────────────────────────
 os.makedirs('models', exist_ok=True)
-joblib.dump(pipeline, 'models/model.pkl')
-print("\nהמודל נשמר: models/model.pkl")
+joblib.dump(best['pipe'], 'models/model.pkl')
+print(f"\nהמודל נשמר: models/model.pkl")
