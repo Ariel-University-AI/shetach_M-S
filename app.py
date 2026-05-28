@@ -272,22 +272,58 @@ elif page == 'גרפים ו-EDA':
 elif page == 'טבלת נתונים':
     st.title('טבלת נתונים')
 
-    col1, col2 = st.columns(2)
-    with col1:
-        types = ['הכל'] + sorted(df['Custom field (סוג פרויקט)'].dropna().unique().tolist())
-        sel_type = st.selectbox('סוג פרויקט:', types)
-    with col2:
-        managers = ['הכל'] + sorted(df['Custom field (מנהל פרויקט)'].dropna().unique().tolist())
-        sel_mgr = st.selectbox('מנהל פרויקט:', managers)
+    tab1, tab2 = st.tabs(["📊 ניתוח ראשוני (דרישות המטלה)", "🔍 חיפוש וסינון נתונים"])
 
-    filtered = df.copy()
-    if sel_type != 'הכל':
-        filtered = filtered[filtered['Custom field (סוג פרויקט)'] == sel_type]
-    if sel_mgr != 'הכל':
-        filtered = filtered[filtered['Custom field (מנהל פרויקט)'] == sel_mgr]
+    with tab1:
+        st.header("📊 טעינת נתונים וניתוח ראשוני")
+        st.markdown("עמוד זה מציג ניתוח ראשוני של קובץ הנתונים הגולמי `data.csv` כפי שנדרש במטלה.")
+        
+        # טעינת קובץ גולמי
+        raw_df = pd.read_csv('data.csv')
+        
+        # 1. 5 שורות ראשונות
+        st.subheader("🔍 5 השורות הראשונות של הטבלה")
+        st.dataframe(raw_df.head(5), use_container_width=True)
+        
+        # 2. מספר שורות ועמודות
+        st.subheader("📐 מימדי הטבלה")
+        rows, cols = raw_df.shape
+        c1, c2 = st.columns(2)
+        with c1:
+            st.metric(label="מספר שורות כולל", value=f"{rows:,}")
+        with c2:
+            st.metric(label="מספר עמודות כולל", value=f"{cols}")
+            
+        # 3. סוג כל עמודה
+        st.subheader("🏷️ סוג כל עמודה (Data Types)")
+        dtypes_df = pd.DataFrame({
+            'שם העמודה': raw_df.columns,
+            'סוג נתונים (Dtype)': raw_df.dtypes.astype(str)
+        }).reset_index(drop=True)
+        st.dataframe(dtypes_df, use_container_width=True)
 
-    st.write(f'מוצגות **{len(filtered)}** רשומות מתוך {len(df)}')
-    st.dataframe(filtered, use_container_width=True)
+    with tab2:
+        st.header("🔍 חיפוש וסינון נתונים")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            types = ['הכל'] + sorted(df['Custom field (סוג פרויקט)'].dropna().unique().tolist())
+            sel_type = st.selectbox('סוג פרויקט:', types)
+        with col2:
+            managers = ['הכל'] + sorted(df['Custom field (מנהל פרויקט)'].dropna().unique().tolist())
+            sel_mgr = st.selectbox('מנהל פרויקט:', managers)
+        with col3:
+            search_key = st.text_input('חיפוש לפי מספר פרויקט (Issue Key):', value='')
+
+        filtered = df.copy()
+        if sel_type != 'הכל':
+            filtered = filtered[filtered['Custom field (סוג פרויקט)'] == sel_type]
+        if sel_mgr != 'הכל':
+            filtered = filtered[filtered['Custom field (מנהל פרויקט)'] == sel_mgr]
+        if search_key.strip() != '':
+            filtered = filtered[filtered['Issue key'].astype(str).str.contains(search_key, case=False, na=False)]
+
+        st.write(f'מוצגות **{len(filtered)}** רשומות מתוך {len(df)}')
+        st.dataframe(filtered, use_container_width=True)
 
 # ───────────────────────────── חיזוי ─────────────────────────────
 elif page == 'חיזוי לוח זמנים':
@@ -295,11 +331,13 @@ elif page == 'חיזוי לוח זמנים':
 
     project_types = sorted(df['Custom field (סוג פרויקט)'].dropna().unique().tolist())
 
-    col1, col2 = st.columns(2)
+    col1, col2, col_num = st.columns(3)
     with col1:
         project_type = st.selectbox('סוג פרויקט:', project_types)
     with col2:
         start_date = st.date_input('תאריך התחלה:', datetime.date.today())
+    with col_num:
+        project_number = st.text_input('מספר פרויקט:', value="1001")
 
     # מציאת ה-SLA המוגדר כברירת מחדל עבור סוג הפרויקט שנבחר מהנתונים
     type_df = df[df['Custom field (סוג פרויקט)'] == project_type]
@@ -331,8 +369,8 @@ elif page == 'חיזוי לוח זמנים':
         schedule_sla = calculate_target_dates(start_date, int(sla_days))
 
         st.markdown("---")
-        st.markdown("### 📋 לוח זמנים מתוכנן ללקוח (לפי SLA)")
-        st.info(f"משך כולל: **{int(sla_days)} ימים** | 🎯 תאריך יעד סופי למסירה: **{schedule_sla['final_deadline'].strftime('%d/%m/%Y')}**")
+        st.markdown(f"### 📋 לוח זמנים מתוכנן לפרויקט מספר {project_number} (לפי SLA)")
+        st.info(f"פרויקט: **{project_number}** | סוג: **{project_type}** | משך כולל: **{int(sla_days)} ימים** | 🎯 תאריך יעד סופי למסירה: **{schedule_sla['final_deadline'].strftime('%d/%m/%Y')}**")
         
         stages_rows_sla = []
         prev = start_date
