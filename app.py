@@ -30,12 +30,11 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    body, .main, .block-container, p, h1, h2, h3, label, div {
-        direction: rtl;
+    h1, h2, h3, p, label {
         text-align: right;
+        direction: rtl;
     }
     .stMetric { direction: rtl; }
-    .stSelectbox label, .stNumberInput label, .stDateInput label { float: right; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -327,7 +326,8 @@ elif page == 'טבלת נתונים':
 
 # ───────────────────────────── חיזוי ─────────────────────────────
 elif page == 'חיזוי לוח זמנים':
-    st.title('תכנון לוח זמנים לפרויקט (לפי SLA)')
+    st.title('תכנון וחיזוי לוח זמנים לפרויקט')
+    st.markdown("כאן תוכלו לקבל הערכת זמנים חכמה המבוססת על **מודל למידת מכונה (ML)** המנתח את שטח המדידה ותשומות העבודה, בהשוואה ל-SLA החוזי.")
 
     project_types = sorted(df['Custom field (סוג פרויקט)'].dropna().unique().tolist())
 
@@ -341,18 +341,35 @@ elif page == 'חיזוי לוח זמנים':
 
     # מציאת ה-SLA המוגדר כברירת מחדל עבור סוג הפרויקט שנבחר מהנתונים
     type_df = df[df['Custom field (סוג פרויקט)'] == project_type]
+    default_sla = 65
     if not type_df.empty and 'SLA התחייבות (ימים)' in type_df.columns:
-        default_sla = int(type_df['SLA התחייבות (ימים)'].dropna().iloc[0])
-    else:
-        default_sla = 65
+        sla_series = type_df['SLA התחייבות (ימים)'].dropna()
+        if not sla_series.empty:
+            try:
+                default_sla = int(sla_series.iloc[0])
+            except Exception:
+                default_sla = 65
 
     col3, col4, col5, col6 = st.columns(4)
     with col3:
-        office_work = st.number_input('תשומות משרד (שעות):', min_value=0.0, value=9.0, step=1.0)
+        office_work = st.number_input('תשומות משרד צפויות (שעות):', min_value=0.0, value=9.0, step=1.0)
     with col4:
-        field_work = st.number_input('תשומות שטח (שעות):', min_value=0.0, value=9.0, step=1.0)
+        field_work = st.number_input('תשומות שטח צפויות (שעות):', min_value=0.0, value=9.0, step=1.0)
+
+    # חישוב דינמי של SLA מומלץ לפי תשומות שטח (כל יום שטח של 9 שעות מוסיף שבוע של SLA)
+    import math
+    if field_work <= 0:
+        recommended_sla = 7
+    elif field_work <= 9:
+        recommended_sla = 14
+    else:
+        # כל בלוק נוסף של 9 שעות שטח (או חלק ממנו) מוסיף שבוע (7 ימים) ל-SLA הבסיסי של 14 ימים
+        additional_days = int(math.ceil((field_work - 9) / 9.0) * 7)
+        recommended_sla = 14 + additional_days
+
     with col5:
-        sla_days = st.number_input('SLA התחייבות (ימים):', min_value=1, value=default_sla, step=1)
+        sla_days = st.number_input('התחייבות SLA חוזית (ימים):', min_value=1, value=int(recommended_sla), step=1,
+                                  help="זהו פרק הזמן המרבי שהובטח ללקוח בחוזה. המערכת מחשבת זאת אוטומטית לפי תשומות השטח, אך ניתן לשנות ידנית.")
     with col6:
         project_area = st.number_input('שטח המדידה (דונם):', min_value=0.1, value=5.0, step=1.0)
 
@@ -364,37 +381,109 @@ elif page == 'חיזוי לוח זמנים':
         area_group_desc = "🔴 קבוצת שטח: גדול (10+ דונם)"
     st.markdown(f"**{area_group_desc}**")
 
-    if st.button('חשב לוח זמנים', type='primary'):
-        # חישוב לוח זמנים מתוכנן לפי SLA
+    if st.button('חשב וחזה לוח זמנים', type='primary'):
+        # 1. חיזוי משך הזמן בפועל באמצעות מודל למידת מכונה (ML)
+        predicted_days = None
+        used_ml_model = False
+        try:
+            model = joblib.load('models/model.pkl')
+            input_data = pd.DataFrame([{
+                'Custom field (סוג פרויקט)': project_type,
+                'Custom field (תשומות - משרד)': office_work,
+                'Custom field (תשומות - שטח)': field_work,
+                'SLA התחייבות (ימים)': int(sla_days),
+                'שטח בדונם': project_area
+            }])
+            predicted_days = int(round(model.predict(input_data)[0]))
+            used_ml_model = True
+        except Exception as e:
+            # Fallback למודל הפשוט ב-main.py
+            from main import estimate_project_duration
+            try:
+                predicted_days = estimate_project_duration(project_type, project_area)
+            except Exception:
+                predicted_days = int(sla_days)
+
+        # 2. חישוב שלבי לוחות הזמנים
+        schedule_model = calculate_target_dates(start_date, predicted_days)
         schedule_sla = calculate_target_dates(start_date, int(sla_days))
 
         st.markdown("---")
-        st.markdown(f"### 📋 לוח זמנים מתוכנן לפרויקט מספר {project_number} (לפי SLA)")
-        st.info(f"פרויקט: **{project_number}** | סוג: **{project_type}** | משך כולל: **{int(sla_days)} ימים** | 🎯 תאריך יעד סופי למסירה: **{schedule_sla['final_deadline'].strftime('%d/%m/%Y')}**")
-        
-        stages_rows_sla = []
-        prev = start_date
-        for stage, deadline in schedule_sla['stages'].items():
-            days = (deadline - prev).days
-            stages_rows_sla.append({
-                'שלב': stage,
-                'תאריך התחלה': prev.strftime('%d/%m/%Y'),
-                'תאריך יעד': deadline.strftime('%d/%m/%Y'),
-                'ימים': days,
-            })
-            prev = deadline
-        st.table(pd.DataFrame(stages_rows_sla))
+        st.markdown(f"## 📋 לוחות זמנים לפרויקט {project_number}")
 
-        # גאנט ללקוח
-        gantt_sla = []
-        prev = start_date
-        for stage, deadline in schedule_sla['stages'].items():
-            gantt_sla.append({'שלב': stage, 'התחלה': prev, 'סיום': deadline})
-            prev = deadline
-        fig_sla = px.timeline(
-            pd.DataFrame(gantt_sla),
-            x_start='התחלה', x_end='סיום', y='שלב', color='שלב'
-        )
-        fig_sla.update_yaxes(autorange='reversed')
-        st.plotly_chart(fig_sla, use_container_width=True)
+        # השוואה בין חיזוי ל-SLA
+        if used_ml_model:
+            st.info(f"🔮 **חיזוי מודל ה-ML (Ridge Regression):** הפרויקט צפוי לקחת כ-**{predicted_days} ימים** בפועל.\n\n"
+                    f"📋 **התחייבות SLA חוזית:** הפרויקט מוגדר ל-**{int(sla_days)} ימים**.")
+        else:
+            st.info(f"📐 **הערכה מבוססת שטח (מודל ליניארי):** הפרויקט מוערך בכ-**{predicted_days} ימים** בפועל.\n\n"
+                    f"📋 **התחייבות SLA חוזית:** הפרויקט מוגדר ל-**{int(sla_days)} ימים**.")
+
+        if predicted_days <= sla_days:
+            st.success(f"✅ **בטוח לעבודה!** לפי חיזוי המודל, אתם צפויים לסיים את הפרויקט **{sla_days - predicted_days} ימים לפני הדדליין** של ה-SLA החוזי.")
+        else:
+            st.warning(f"⚠️ **סכנת עיכוב!** לפי חיזוי המודל, הפרויקט צפוי לחרוג מה-SLA החוזי ב-**{predicted_days - sla_days} ימים**. מומלץ לתגבר משאבים (תשומות שטח/משרד) או לתאם ציפיות מחדש מול הלקוח.")
+
+        # הצגת שתי האפשרויות בטאבים
+        res_tab1, res_tab2 = st.tabs(["🔮 לוח זמנים מתוכנן (מבוסס חיזוי המודל בפועל)", "📋 לוח זמנים חוזי (מבוסס SLA)"])
+
+        with res_tab1:
+            st.markdown(f"### 🔮 לוח זמנים משוער בפועל (לפי מודל ML: **{predicted_days} ימים**)")
+            st.markdown(f"🎯 תאריך יעד צפוי סופי למסירה: **{schedule_model['final_deadline'].strftime('%d/%m/%Y')}**")
+            
+            stages_rows_model = []
+            prev = start_date
+            for stage, deadline in schedule_model['stages'].items():
+                days = (deadline - prev).days
+                stages_rows_model.append({
+                    'שלב': stage,
+                    'תאריך התחלה': prev.strftime('%d/%m/%Y'),
+                    'תאריך יעד': deadline.strftime('%d/%m/%Y'),
+                    'ימים': days,
+                })
+                prev = deadline
+            st.table(pd.DataFrame(stages_rows_model))
+
+            # גאנט לחיזוי
+            gantt_model = []
+            prev = start_date
+            for stage, deadline in schedule_model['stages'].items():
+                gantt_model.append({'שלב': stage, 'התחלה': prev, 'סיום': deadline})
+                prev = deadline
+            fig_model = px.timeline(
+                pd.DataFrame(gantt_model),
+                x_start='התחלה', x_end='סיום', y='שלב', color='שלב'
+            )
+            fig_model.update_yaxes(autorange='reversed')
+            st.plotly_chart(fig_model, use_container_width=True)
+
+        with res_tab2:
+            st.markdown(f"### 📋 לוח זמנים מתוכנן לפי ה-SLA החוזי (**{int(sla_days)} ימים**)")
+            st.markdown(f"🎯 תאריך יעד סופי למסירה ללקוח: **{schedule_sla['final_deadline'].strftime('%d/%m/%Y')}**")
+            
+            stages_rows_sla = []
+            prev = start_date
+            for stage, deadline in schedule_sla['stages'].items():
+                days = (deadline - prev).days
+                stages_rows_sla.append({
+                    'שלב': stage,
+                    'תאריך התחלה': prev.strftime('%d/%m/%Y'),
+                    'תאריך יעד': deadline.strftime('%d/%m/%Y'),
+                    'ימים': days,
+                })
+                prev = deadline
+            st.table(pd.DataFrame(stages_rows_sla))
+
+            # גאנט ל-SLA
+            gantt_sla = []
+            prev = start_date
+            for stage, deadline in schedule_sla['stages'].items():
+                gantt_sla.append({'שלב': stage, 'התחלה': prev, 'סיום': deadline})
+                prev = deadline
+            fig_sla = px.timeline(
+                pd.DataFrame(gantt_sla),
+                x_start='התחלה', x_end='סיום', y='שלב', color='שלב'
+            )
+            fig_sla.update_yaxes(autorange='reversed')
+            st.plotly_chart(fig_sla, use_container_width=True)
 
