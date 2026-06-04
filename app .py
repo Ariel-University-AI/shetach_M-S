@@ -547,7 +547,7 @@ elif page == 'חיזוי לוח זמנים':
                 'SLA התחייבות (ימים)':           int(sla_days),
                 'שטח בדונם':                     project_area
             }])
-            predicted_days = int(round(model.predict(input_data)[0]))
+            predicted_days = max(1, int(round(model.predict(input_data)[0])))
             used_ml_model  = True
         except Exception:
             try:
