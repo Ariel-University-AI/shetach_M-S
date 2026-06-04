@@ -81,9 +81,8 @@ preprocessor = ColumnTransformer([
 ])
 
 candidates = {
-    'RandomForest':       RandomForestRegressor(n_estimators=200, max_depth=10, random_state=42),
-    'GradientBoosting':   GradientBoostingRegressor(n_estimators=200, max_depth=4, random_state=42),
-    'Ridge':              Ridge(alpha=1.0),
+    'RandomForest':     RandomForestRegressor(n_estimators=200, max_depth=10, random_state=42),
+    'GradientBoosting': GradientBoostingRegressor(n_estimators=200, max_depth=4, random_state=42),
 }
 
 # ── השוואת אלגוריתמים ────────────────────────────────────────────
