@@ -21,7 +21,7 @@ def show_large_plotly_chart(fig, *args, **kwargs):
     if hasattr(fig, 'update_layout'):
         fig.update_layout(
             font=dict(size=15, family="Heebo, Arial"),
-            title=dict(font=dict(size=19)),
+            title_font_size=19,
             hoverlabel=dict(font=dict(size=14)),
             xaxis=dict(tickfont=dict(size=13), title=dict(font=dict(size=15))),
             yaxis=dict(tickfont=dict(size=13), title=dict(font=dict(size=15))),
@@ -591,7 +591,7 @@ elif page == 'חיזוי לוח זמנים':
             fig = px.timeline(pd.DataFrame(gantt2), x_start='התחלה', x_end='סיום',
                               y='שלב', color='שלב')
             fig.update_yaxes(autorange='reversed')
-            fig.update_layout(**DARK_LAYOUT)
+            fig.update_layout(**DARK_LAYOUT, margin=dict(t=40, b=40, l=160, r=20))
             st.plotly_chart(fig, use_container_width=True)
 
         with res_tab1:
