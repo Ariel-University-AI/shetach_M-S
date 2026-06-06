@@ -589,9 +589,14 @@ elif page == 'חיזוי לוח זמנים':
                 prev2 = deadline
             fig = px.timeline(pd.DataFrame(gantt2), x_start='התחלה', x_end='סיום',
                               y='שלב', color='שלב')
-            fig.update_yaxes(autorange='reversed')
+            fig.update_yaxes(autorange='reversed', automargin=True,
+                             tickfont=dict(size=14, color='#f1f5f9'))
             fig.update_layout(**DARK_LAYOUT)
-            fig.update_layout(margin=dict(t=40, b=40, l=160, r=20), showlegend=False)
+            fig.update_layout(
+                title_text='',
+                showlegend=False,
+                margin=dict(t=10, b=40, l=200, r=20),
+            )
             st.plotly_chart(fig, use_container_width=True)
 
         with res_tab1:
