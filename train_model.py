@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.linear_model import Ridge
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
@@ -83,6 +84,7 @@ preprocessor = ColumnTransformer([
 candidates = {
     'RandomForest':     RandomForestRegressor(n_estimators=200, max_depth=10, random_state=42),
     'GradientBoosting': GradientBoostingRegressor(n_estimators=200, max_depth=4, random_state=42),
+    'Ridge':            Ridge(alpha=1.0),
 }
 
 # ── השוואת אלגוריתמים ────────────────────────────────────────────
