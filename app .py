@@ -495,6 +495,18 @@ elif page == 'חיזוי לוח זמנים':
     st.markdown('<div class="page-title">חיזוי <span class="accent">לוח זמנים</span></div>', unsafe_allow_html=True)
     st.markdown('<div class="page-subtitle">הערכת זמנים חכמה מבוססת מודל ML</div>', unsafe_allow_html=True)
 
+    try:
+        import json
+        with open('models/metrics.json', encoding='utf-8') as f:
+            _m = json.load(f)
+        mc1, mc2, mc3, mc4 = st.columns(4)
+        mc1.metric('מודל', _m['model_name'])
+        mc2.metric('MAE (ימים)', f"{_m['mae']:.1f}")
+        mc3.metric('RMSE (ימים)', f"{_m['rmse']:.1f}")
+        mc4.metric('R²', f"{_m['r2']:.3f}")
+    except Exception:
+        pass
+
     project_types = sorted(df['Custom field (סוג פרויקט)'].dropna().unique().tolist())
 
     col1, col2, col_num = st.columns(3)

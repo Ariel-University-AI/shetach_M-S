@@ -1,0 +1,1 @@
+{"model_name": "RandomForest", "mae": 45.6, "rmse": 70.7, "r2": -0.329, "train_size": 182, "test_size": 46}

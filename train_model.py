@@ -1,13 +1,13 @@
 import pandas as pd
 import numpy as np
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.linear_model import Ridge
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import joblib
+import json
 import os
 
 # ── טעינה וניקוי ────────────────────────────────────────────────
@@ -111,4 +111,15 @@ print(f"  R²  : {best['r2']:.3f}")
 # ── שמירה ────────────────────────────────────────────────────────
 os.makedirs('models', exist_ok=True)
 joblib.dump(best['pipe'], 'models/model.pkl')
+metrics = {
+    'model_name': best_name,
+    'mae':        round(best['mae'],  1),
+    'rmse':       round(best['rmse'], 1),
+    'r2':         round(best['r2'],   3),
+    'train_size': len(X_train),
+    'test_size':  len(X_test),
+}
+with open('models/metrics.json', 'w', encoding='utf-8') as f:
+    json.dump(metrics, f, ensure_ascii=False)
 print(f"\nהמודל נשמר: models/model.pkl")
+print(f"מדדים נשמרו: models/metrics.json")
